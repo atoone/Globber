@@ -192,7 +192,7 @@ std::vector<std::byte> read_data(std::vector<std::string> tokens, unsigned int &
 
     do {
         if( tokens[index].length() > 0 && tokens[index][0] == '"' ) {
-            std::string txt = tokens[index].substr(1, tokens[index].length()-1 );
+            std::string txt = tokens[index].substr(1, tokens[index].length()-2 );
             for(char& ch: txt) {
                 result.push_back((std::byte)ch);
             }
@@ -356,8 +356,12 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
     long toByte     = -1;
     long countBytes = -1;
 
+    bool padOnce = false;
+
     std::vector<std::byte> padData;
     std::vector<std::byte> newData;
+    std::vector<std::byte> readData;
+    std::string filename;
 
     unsigned int index = 1;
     while( index < tokens.size() ) {
@@ -374,16 +378,45 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
         } else if( equalsIgnoreCase(tokens[index], "count") ) {
             countBytes = parse_number(tokens, ++index);
         } else if( equalsIgnoreCase(tokens[index], "pad" ) ) {
-            padData = read_data(tokens, ++index);
+            if( ++index < tokens.size() && equalsIgnoreCase(tokens[index], "once") ) {
+                padOnce = true;
+                index++;
+            }
+            padData = read_data(tokens, index);
         } else if( equalsIgnoreCase(tokens[index], "data") ) {
-            std::vector<std::byte> readData = read_data(tokens, ++index);
-            check_offsets(fromByte, toByte, countBytes, readData.size(), maxBytes, exactBytes);
-            newData = std::vector<std::byte>(readData.begin()+fromByte, readData.begin()+fromByte+countBytes);
+            readData = read_data(tokens, ++index);
         } else if( equalsIgnoreCase(tokens[index], "file") ) {
-            newData = read_file(tokens[++index], fromByte, toByte, countBytes, maxBytes, exactBytes);
+            if( index >= tokens.size()-1 ) {
+                throw std::invalid_argument("File requires a filename parameter");
+            }
+            filename = tokens[++index];  
         }
 
         index++;
+    }
+
+    if( readData.size() > 0 ) {
+        check_offsets(fromByte, toByte, countBytes, readData.size(), maxBytes, exactBytes);
+        newData = std::vector<std::byte>(readData.begin()+fromByte, readData.begin()+fromByte+countBytes);
+    } 
+    else if( filename.length() > 0 ) {
+        newData = read_file(filename, fromByte, toByte, countBytes, maxBytes, exactBytes);
+    }
+
+    if( exactBytes > 0 ) {
+        if( newData.size() < (unsigned long)exactBytes ) {
+            if( padData.size() == 0 ) {
+                throw std::invalid_argument("Pad data must be specified to extend input to exact length");
+            }
+
+            unsigned int index = 0;
+            while( newData.size() < (unsigned long)exactBytes ) {
+                newData.push_back(padData[index]);
+                if( index < padData.size()-1 || !padOnce ) {
+                    index = (index+1) % padData.size();
+                }
+            }
+        }
     }
     switch(action) {
         case Action::APPEND: 
@@ -391,17 +424,32 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
                 throw std::invalid_argument("Append should not have 'at <address>' parameter");
             }
             data.insert(data.end(), newData.begin(), newData.end());
-            std::cout << "Append " << data.size() << std::endl;
+            std::cout << "Appended " << data.size() << " bytes " << std::endl;
             break;
         case Action::INSERT: 
             if( atAddress < 0 ) {
                 throw std::invalid_argument("Insert requires 'at <address>' parameter");
             }
-            std::cout << "Insert" << std::endl;
+            if( (unsigned long)atAddress >= data.size() ) {
+                throw std::invalid_argument("Insert position "+std::to_string(atAddress)+" is beyond end of data ("+std::to_string(data.size())+")");
+            }
+            data.insert(data.begin()+atAddress, newData.begin(), newData.end());
+            std::cout << "Inserted " << data.size() << " bytes at " << atAddress << std::endl;
             break;
         case Action::WRITE: 
             if( atAddress < 0 ) {
                 throw std::invalid_argument("Write requires 'at <address>' parameter");
+            }
+            if( (unsigned long)atAddress >= data.size() ) {
+                throw std::invalid_argument("Write position "+std::to_string(atAddress)+" is beyond end of data ("+std::to_string(data.size())+")");
+            }
+            if( (unsigned long)atAddress+newData.size() >= data.size() ) {
+                data.erase(data.begin()+atAddress, data.end());
+                data.insert(data.end(), newData.begin(), newData.end());
+            }
+            else {
+                data.erase(data.begin()+(unsigned long)atAddress, data.begin()+(unsigned long)atAddress+newData.size());
+                data.insert(data.begin()+(unsigned long)atAddress, newData.begin(), newData.end());
             }
             std::cout << "Write" << std::endl;
             break;

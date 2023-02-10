@@ -26,7 +26,10 @@ append hex  00AF73D9B0CAFE                      # - Appends hex data to the outp
 #
 
 # Data is interpreted as a byte sequence by default, accepting values in the range -128 to 255
-# Word and Long values can be read by inserting 'word' or 'long' in the data stream.
+# Word and Long values can be read by inserting 'word' or 'long' in the data stream. All 
+# subsequent values will be interpreted as word or long data. Use 'byte' to return to 
+# interpreting values as single bytes.
+#
 # By default, output is little endian, this can be controlled with 'be' or 'le' 
 #
 # E.g.   data 12, -1, word 12k, -386, long be 0xDEADBEEF
@@ -34,10 +37,25 @@ append hex  00AF73D9B0CAFE                      # - Appends hex data to the outp
 # produces the byte sequence: 0cff 0030 7efe dead beef 
 #
 #
-insert exactly 100 data "Some string\n" 
-write data 123,45,23,65,7
 
-offset <value>
+# Selecting parts of data
+# Parts of the input data can be selected with the 'from', 'to' and 'count' parameters.
+# If 'from' is not specified, the start of the input is assumed.
+# Only one of 'to' or 'count' can be specified. If neither is used, the end of the input is assumed.
+#
 
+append file in.bin from 278 count 1k  # - Appends 1024 bytes from in.bin, starting at offset 278
+append file in.bin from 12 to 200     # - Appends 188 bytes from in.bin, starting at offset 12
 
-# [append | insert | write] {at <address>} {[max | exactly] [0x100 | 0b000 | 1234 | 1k | 1M]} {pad ["string" | number],[...] } {from <offset>} {to <offset>} [file | data]
+# Padding data
+# Input data can be padded to a given length with a sequence of bytes.
+# Specify the desired length with 'exactly <value>'.
+# Provide a sequence of one or more bytes to pad with, using 'pad <value>[,<value>...]'
+# The sequence is repeated until the desired length is reached. 
+# Use 'pad once <values>[,<value>..]' to stop the full sequence being repeated - the last byte is used
+# to fill to the desired length.
+
+append exactly 1k pad "Hello, "            # - Appends 1024 bytes, filled with 'Hello, Hello, Hello, '
+append exactly 1k pad once "Hello."        # - Appends 1024 bytes, filled with 'Hello...............'
+
+append exactly 1k file in.bin pad 0x00     # - Appends the file in.bin, padded to 1024 bytes with 0's
