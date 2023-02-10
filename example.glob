@@ -1,0 +1,43 @@
+# Anything after a hash is a comment and is ignored
+
+# A line starts with an action followed by one or more arguments
+#
+# Actions are:
+
+append # - Append data to the output
+insert # - Insert data at a location in the output, shifting existing data after
+write  # - Write data at a location in the output, replacing any existing data
+offset # - Set an address offset, useful when building structures
+
+# Data can be a file, one or more numeric values, strings or hex blocks
+
+append file afile.bin                           # - Appends afile.bin to the output
+append data 12,34, "This is a string\n"         # - Appends bytes to the output
+append hex  00AF73D9B0CAFE                      # - Appends hex data to the output
+
+# Numeric values are decimal by default. An underscore can be used to improve readability
+# Use 0x to prefix hex values, or 0b to prefix binary values
+# Adding 'k' or 'M' multiplies the value by 1024 or 1,048,576 respectively.
+#
+# Eg.   123          -> 123
+#       0xA          -> 10
+#       0b_0100_1010 -> 74
+#       12k          -> 12288
+#
+
+# Data is interpreted as a byte sequence by default, accepting values in the range -128 to 255
+# Word and Long values can be read by inserting 'word' or 'long' in the data stream.
+# By default, output is little endian, this can be controlled with 'be' or 'le' 
+#
+# E.g.   data 12, -1, word 12k, -386, long be 0xDEADBEEF
+#
+# produces the byte sequence: 0cff 0030 7efe dead beef 
+#
+#
+insert exactly 100 data "Some string\n" 
+write data 123,45,23,65,7
+
+offset <value>
+
+
+# [append | insert | write] {at <address>} {[max | exactly] [0x100 | 0b000 | 1234 | 1k | 1M]} {pad ["string" | number],[...] } {from <offset>} {to <offset>} [file | data]

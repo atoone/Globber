@@ -1,0 +1,6 @@
+globber
+
+*.bin
+*.o
+
+test.*
