@@ -1,8 +1,8 @@
 # Anything after a hash is a comment and is ignored
 
-# A line starts with an action followed by one or more arguments
+# A line starts with a command followed by one or more arguments
 #
-# Actions are:
+# Commands are:
 
 append # - Append data to the output
 insert # - Insert data at a location in the output, shifting existing data after
@@ -27,8 +27,8 @@ append hex  00AF73D9B0CAFE                      # - Appends hex data to the outp
 
 # Data is interpreted as a byte sequence by default, accepting values in the range -128 to 255
 # Word and Long values can be read by inserting 'word' or 'long' in the data stream. All 
-# subsequent values will be interpreted as word or long data. Use 'byte' to return to 
-# interpreting values as single bytes.
+# subsequent values will be interpreted as word or long data, generating two or four byte 
+# sequences. Use 'byte' to return to interpreting values as single bytes.
 #
 # By default, output is little endian, this can be controlled with 'be' or 'le' 
 #
@@ -59,3 +59,10 @@ append exactly 1k pad "Hello, "            # - Appends 1024 bytes, filled with '
 append exactly 1k pad once "Hello."        # - Appends 1024 bytes, filled with 'Hello...............'
 
 append exactly 1k file in.bin pad 0x00     # - Appends the file in.bin, padded to 1024 bytes with 0's
+
+# Inserting and overwriting
+# When using 'insert' or 'write' commands, the 'at <value>' argument specifies the location to insert or
+# overwrite data.
+
+insert file in.bin at 100                  # - Inserts the file at offset 100
+write data 0x01 at 200                     # - Write byte 0x01 at offset 200

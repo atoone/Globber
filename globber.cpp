@@ -27,6 +27,8 @@ enum Action {APPEND, INSERT, WRITE, OFFSET};
 
 enum Mode {BYTES, WORDS, LONGS};
 
+const std::string digits = "0123456789ABCDEF";
+
 std::vector<std::string> read_file_as_strings(const std::string& filename) {
     std::vector<std::string> lines;
     std::ifstream file(filename);
@@ -137,15 +139,13 @@ long parse_number(std::string& str) {
         start+=2;
     }
 
-    std::transform(str.begin(), str.end(), str.begin(), ::toupper);
-
     long value = 0;
-    const std::string digits = "0123456789ABCDEF";
+    
     for(int index = start; index<=end; index++) {
         if( str[index] == '_' ) continue;
 
         value = value * base;
-        int num = digits.find(str[index]);
+        int num = digits.find(toupper(str[index]));
         if( num < 0 || num >= base ) {
             std::cerr << "Invalid char in '" << str << "' - '" << str[index] <<"' is not a valid digit" << std::endl;
 
@@ -179,6 +179,24 @@ long parse_number(std::vector<std::string> tokens, const unsigned int index) {
     return parse_number(tokens[index]);
 }
 
+std::vector<std::byte> read_hex(std::vector<std::string> tokens, unsigned int &index) {
+    if( index >= tokens.size() ) {
+        throw std::invalid_argument("Missing parameter for "+tokens[index-1]);
+    }
+    std::vector<std::byte> result;
+
+    std::string str = tokens[index];
+    for( unsigned int i=0; i<str.length(); i+=2) {
+        if( i+1 == str.length() ) {
+            throw std::invalid_argument("Odd number of digits in hex block: "+str);
+        }
+        int high = digits.find(toupper(str[i]));
+        int low = digits.find(toupper(str[i+1]));
+
+        result.push_back((std::byte) (((high << 4) & 0x0F0) | (low & 0x0F)));
+    }
+    return result;
+}
 
 std::vector<std::byte> read_data(std::vector<std::string> tokens, unsigned int &index) {
     if( index >= tokens.size() ) {
@@ -366,7 +384,7 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
     unsigned int index = 1;
     while( index < tokens.size() ) {
         if( equalsIgnoreCase(tokens[index], "at") ) {
-            atAddress = parse_number(tokens, ++index);
+            atAddress = parse_number(tokens, ++index) + addressOffset;
         } else if( equalsIgnoreCase(tokens[index], "max") ) {
             maxBytes = parse_number(tokens, ++index);
         } else if( equalsIgnoreCase(tokens[index], "exactly") ) {
@@ -385,6 +403,8 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
             padData = read_data(tokens, index);
         } else if( equalsIgnoreCase(tokens[index], "data") ) {
             readData = read_data(tokens, ++index);
+        } else if( equalsIgnoreCase(tokens[index], "hex") ) {
+            readData = read_hex(tokens, ++index);
         } else if( equalsIgnoreCase(tokens[index], "file") ) {
             if( index >= tokens.size()-1 ) {
                 throw std::invalid_argument("File requires a filename parameter");
@@ -491,8 +511,34 @@ void process_script(std::vector<std::string> script, std::string filename) {
 
 int main(int argc, char* argv[]) {
     if( argc != 3 ) {
-        std::cout << "Globber - build binary data files with scripts" << std::endl;
+        std::cout << "Globber v1.0 - build binary data files with scripts" << std::endl;
         std::cout << "  Usage: globber script-file output-file" << std::endl;
+        std::cout << "Script reference: " << std::endl;
+        std::cout << "  Each line of the script file is of the form  <command> <arguments> # comment"<< std::endl;
+        std::cout << "  Commands:" << std::endl;
+        std::cout << "     append         - append data" << std::endl;
+        std::cout << "     insert         - insert data" << std::endl;
+        std::cout << "     write          - overwrite data" << std::endl;
+        std::cout << "     offset <value> - set offset for insert/overwrite" << std::endl;
+        std::cout << "  Arguments:" << std::endl;
+        std::cout << "     file <filename>                   - read data from file" << std::endl;
+        std::cout << "     data <value> [,<value>...]        - read data from list of values" << std::endl;
+        std::cout << "     hex <hexblock>                    - read data from hex stream" << std::endl;
+        std::cout << "     from <offset>                     - read from offset in data" << std::endl;
+        std::cout << "     to <offset>                       - read to offset in data" << std::endl;
+        std::cout << "     count <offset>                    - read exact number of bytes in data" << std::endl;
+        std::cout << "     exactly <value>                   - extend data to an exact length" << std::endl;
+        std::cout << "     pad [once] <value> [,<value>...]  - pad to required length with sequence of values" << std::endl;
+        std::cout << "     at <value>                        - insert or write data at the given offset" << std::endl;
+        std::cout << "   Values:" << std::endl;
+        std::cout << "     123                -> Decimal number" << std::endl;
+        std::cout << "     0x12               -> Hex number" << std::endl;
+        std::cout << "     0b0101             -> Binary number" << std::endl;
+        std::cout << "       - Use underscores for readability, append 'k' or 'M' for kilobyte or megabyte offsets" << std::endl;
+        std::cout << "       - Values in data/pad are interpreted as bytes by default, use 'word', 'long', 'byte' to change" << std::endl;
+        std::cout << "       - Word and Long values are written as little endian, use 'le' or 'be' to change" << std::endl;
+        std::cout << "       - e.g.   data 0b0101_000, 0x00, word 1234, 4567, be 0xCAFE" << std::endl;
+        std::cout << "     \"String\\n\"     -> String (sequence of bytes)" << std::endl;
         return 0;
     }
 
