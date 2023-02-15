@@ -71,12 +71,12 @@ Produces the byte sequence: `0cff 0030 7efe dead beef`
 
 ## Selecting parts of data
 
-Parts of the input data can be selected with the `from`, `to` and `count` parameters.
+Parts of the input data can be selected with the `from`, `to` and `bytes` parameters.
 If `from` is not specified, the start of the input is assumed.
-Only one of `to` or `count` can be specified. If neither is used, the end of the input is assumed.
+Only one of `to` or `bytes` can be specified. If neither is used, the end of the input is assumed.
 
 ```
-append file in.bin from 278 count 1k  # - Appends 1024 bytes from in.bin, starting at offset 278
+append file in.bin from 278 bytes 1k  # - Appends 1024 bytes from in.bin, starting at offset 278
 append file in.bin from 12 to 200     # - Appends 188 bytes from in.bin, starting at offset 12
 ```
 
@@ -104,6 +104,16 @@ overwrite data.
 ```
 insert file in.bin at 100                  # - Inserts the file at offset 100
 write data 0x01 at 200                     # - Write byte 0x01 at offset 200
+```
+
+## Interleaving data
+
+Two data sets can be interleaved by specifying the length of chunks from the first set and second set. The first
+data set can be any of `data`, `hex` or `file`, and the second can also be `pad` - in which case the pad value is
+expanded to fit the specified chunk size.
+
+```
+append data "abcdef" interleave 2 4 pad "-"    # - Produces the output 'ab----cd----ef----'
 ```
 
 # Example Scripts

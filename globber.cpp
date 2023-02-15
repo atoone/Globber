@@ -214,6 +214,10 @@ std::vector<std::byte> read_data(std::vector<std::string> tokens, unsigned int &
             for(char& ch: txt) {
                 result.push_back((std::byte)ch);
             }
+            index++;
+            if( (index >= tokens.size()) || (tokens[index] != ",") ) {
+                break;
+            }
         } 
         else if( equalsIgnoreCase(tokens[index], "word" )) {
             mode = Mode::WORDS;
@@ -278,6 +282,8 @@ std::vector<std::byte> read_data(std::vector<std::string> tokens, unsigned int &
     }
     while( index < tokens.size() );
 
+    index--;
+
     return result;
 }
 
@@ -293,7 +299,7 @@ void check_offsets(long &fromByte, long toByte, long &countBytes, long dataSize,
             throw std::invalid_argument("Cannot read to byte "+std::to_string(toByte)+" - input too short ("+std::to_string(dataSize)+")");
         } 
         else if(countBytes > 0) {
-            throw std::invalid_argument("Cannot specify both to byte and byte count values");
+            throw std::invalid_argument("Cannot specify both 'to' byte and 'bytes' values");
         }
         countBytes = toByte - fromByte;
     }
@@ -309,12 +315,12 @@ void check_offsets(long &fromByte, long toByte, long &countBytes, long dataSize,
 
     if( maxBytes > 0 ) {
         if( maxBytes < countBytes ) {
-            throw std::invalid_argument("Data exceeds specified max length - use 'count <bytes>' or 'to <offset>' to truncate input - "+std::to_string(countBytes)+" bytes available");
+            throw std::invalid_argument("Data exceeds specified max length - use 'bytes <length>' or 'to <offset>' to truncate input - "+std::to_string(countBytes)+" bytes available");
         }       
     }
     if( exactBytes > 0 ) {
         if( exactBytes < countBytes ) {
-            throw std::invalid_argument("Data exceeds specified exact length - use 'count <bytes>' or 'to <offset>' to truncate input - "+std::to_string(countBytes)+" bytes available");
+            throw std::invalid_argument("Data exceeds specified exact length - use 'bytes <length>' or 'to <offset>' to truncate input - "+std::to_string(countBytes)+" bytes available");
         }       
     }
 }
@@ -336,36 +342,12 @@ std::vector<std::byte> read_file(std::string filename, long &fromByte, long toBy
     return fileData;
 }
 
-void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &data) {
+void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &data, long &previousEnd, Action &previousAction) {
     // Guaranteed to have at least one token
 
     Action action;
 
-    if( equalsIgnoreCase(tokens[0], "append") ) {
-        action = Action::APPEND;
-    }
-    else if( equalsIgnoreCase(tokens[0], "insert") ) {
-        action = Action::INSERT;
-    }
-    else if( equalsIgnoreCase(tokens[0], "write") ) {
-        action = Action::WRITE;
-    }
-    else if( equalsIgnoreCase(tokens[0], "offset") ) {
-        if(tokens.size() < 2) {
-            throw std::invalid_argument("Offset requires a numeric argument");
-        }
-        addressOffset = parse_number(tokens, 1);
-        if( addressOffset < 0 ) {
-            throw std::invalid_argument("Address offset must be positive or zero");
-        }
-        check_no_more_tokens(tokens, 2);
-        return;
-    }
-    else {
-        std::cout << "Got Unknown action '" << tokens[0] << "'" << std::endl;
-
-        throw std::invalid_argument("Unknown action "+tokens[0]);
-    }
+    unsigned int index = 0;
 
     long atAddress  = -1;
     long maxBytes   = -1;
@@ -374,14 +356,56 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
     long toByte     = -1;
     long countBytes = -1;
 
+    long interleaveFirst = -1;
+    long interleaveSecond = -1;
+
+    if( equalsIgnoreCase(tokens[index], "append") ) {
+        action = Action::APPEND;
+        index++;
+    }
+    else if( equalsIgnoreCase(tokens[index], "insert") ) {
+        action = Action::INSERT;
+        index++;
+    }
+    else if( equalsIgnoreCase(tokens[index], "write") ) {
+        action = Action::WRITE;
+        index++;
+    }
+    else if( equalsIgnoreCase(tokens[index], "data") ) {
+        action = previousAction;
+        if( previousAction != Action::APPEND ) {
+            atAddress = previousEnd;
+        }
+    }
+    else if( equalsIgnoreCase(tokens[index], "offset") ) {
+        index++;
+        if(tokens.size() <= index) {
+            throw std::invalid_argument("Offset requires a numeric argument");
+        }
+        addressOffset = parse_number(tokens, index);
+        if( addressOffset < 0 ) {
+            throw std::invalid_argument("Address offset must be positive or zero");
+        }
+        check_no_more_tokens(tokens, 2);
+        return;
+    }
+    else {
+        std::cout << "Got Unknown action '" << tokens[index] << "'" << std::endl;
+
+        throw std::invalid_argument("Unknown action "+tokens[index]);
+    }
+
+    previousAction = action;
+
     bool padOnce = false;
 
     std::vector<std::byte> padData;
     std::vector<std::byte> newData;
     std::vector<std::byte> readData;
+    std::vector<std::byte> interleaveData;
     std::string filename;
 
-    unsigned int index = 1;
+
     while( index < tokens.size() ) {
         if( equalsIgnoreCase(tokens[index], "at") ) {
             atAddress = parse_number(tokens, ++index) + addressOffset;
@@ -393,7 +417,7 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
             fromByte = parse_number(tokens, ++index);
         } else if( equalsIgnoreCase(tokens[index], "to") ) {
             toByte = parse_number(tokens, ++index);
-        } else if( equalsIgnoreCase(tokens[index], "count") ) {
+        } else if( equalsIgnoreCase(tokens[index], "bytes") ) {
             countBytes = parse_number(tokens, ++index);
         } else if( equalsIgnoreCase(tokens[index], "pad" ) ) {
             if( ++index < tokens.size() && equalsIgnoreCase(tokens[index], "once") ) {
@@ -410,7 +434,46 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
                 throw std::invalid_argument("File requires a filename parameter");
             }
             filename = tokens[++index];  
+        } else if( equalsIgnoreCase(tokens[index], "interleave") ) {
+            if( index >= tokens.size()-2 ) {
+                throw std::invalid_argument("Interleave requires two size parameters");
+            }
+            interleaveFirst = parse_number(tokens, ++index);
+            if( equalsIgnoreCase(tokens[++index], ",") ) {
+                index++;
+                if( index >= tokens.size()-1 ) {
+                    throw std::invalid_argument("Interleave requires two size parameters");
+                }
+            }
+            interleaveSecond = parse_number(tokens, index);
+            if( interleaveFirst <= 0 || interleaveSecond <= 0 ) {
+                throw std::invalid_argument("Interleave sizes must be at least 1");
+            }
+
+            if( readData.size() > 0 ) {
+                check_offsets(fromByte, toByte, countBytes, readData.size(), maxBytes, exactBytes);
+                interleaveData = std::vector<std::byte>(readData.begin()+fromByte, readData.begin()+fromByte+countBytes);
+            } 
+            else if( filename.length() > 0 ) {
+                interleaveData = read_file(filename, fromByte, toByte, countBytes, maxBytes, exactBytes);
+            }
+            else {
+                throw std::invalid_argument("Interleave requires input data to be provided before command");
+            }
+
+            if( interleaveData.size() % interleaveFirst != 0 ) {
+                throw std::invalid_argument("First dataset for interleave must be an exact multiple of "+std::to_string(interleaveFirst)+" bytes - but is "+std::to_string(interleaveData.size()));
+            }
+
+            readData.clear();
+            filename = "";
+            fromByte   = 0;
+            toByte     = -1;
+            countBytes = -1;
+        } else {
+            throw std::invalid_argument("Unexpected token: "+tokens[index]);
         }
+
 
         index++;
     }
@@ -423,6 +486,52 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
         newData = read_file(filename, fromByte, toByte, countBytes, maxBytes, exactBytes);
     }
 
+    if( interleaveData.size() > 0) {
+        if( newData.size() == 0 && padData.size() == 0 ) {
+            throw std::invalid_argument("Second dataset or pad data required for interleave");
+        }
+        if( newData.size() == 0 && padData.size() == 0 ) {
+            throw std::invalid_argument("Interleave is missing second data set, or pad data");
+        }
+        if( newData.size() % interleaveSecond != 0) {
+            throw std::invalid_argument("Second dataset for interleave must be an exact multiple of "+std::to_string(interleaveSecond)+" bytes - but is "+std::to_string(newData.size()));
+        }
+        if( newData.size() != 0 && ((newData.size() / interleaveSecond) != (interleaveData.size() / interleaveFirst))) {
+            throw std::invalid_argument("Interleave requires same number of chunks for each data set. Interleaving "+std::to_string(interleaveFirst)+"/"+std::to_string(interleaveSecond)+
+                " gives "+std::to_string(interleaveData.size() / interleaveFirst)+" and "+std::to_string(newData.size() / interleaveSecond)+" chunks respectively");
+        }
+
+        if( newData.size() != 0 ) {
+            std::vector<std::byte> result;
+            
+            unsigned int secondIndex = 0;
+
+            for( unsigned int index = 0; index < interleaveData.size(); index+=interleaveFirst ) {
+                result.insert(result.end(), interleaveData.begin()+index, interleaveData.begin()+index+interleaveFirst);
+                result.insert(result.end(), newData.begin()+secondIndex, newData.begin()+secondIndex+interleaveSecond);
+                secondIndex += interleaveSecond;
+            }
+            newData = result;
+        }
+        else {
+            std::vector<std::byte> result;
+            
+            unsigned int secondIndex;
+
+            for( unsigned int index = 0; index < interleaveData.size(); index+=interleaveFirst ) {
+                result.insert(result.end(), interleaveData.begin()+index, interleaveData.begin()+index+interleaveFirst);
+                secondIndex = 0;
+                for( int i=0; i<interleaveSecond; i++ ) {
+                    result.push_back(padData[secondIndex]);
+                    if( secondIndex < padData.size()-1 || !padOnce ) {
+                        secondIndex = (secondIndex+1) % padData.size();
+                    }
+                }
+            }
+            newData = result;
+        }
+
+    }
     if( exactBytes > 0 ) {
         if( newData.size() < (unsigned long)exactBytes ) {
             if( padData.size() == 0 ) {
@@ -438,12 +547,14 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
             }
         }
     }
+
     switch(action) {
         case Action::APPEND: 
             if( atAddress >= 0 ) {
                 throw std::invalid_argument("Append should not have 'at <address>' parameter");
             }
             data.insert(data.end(), newData.begin(), newData.end());
+            previousEnd = data.size();
             std::cout << "Appended " << data.size() << " bytes " << std::endl;
             break;
         case Action::INSERT: 
@@ -454,24 +565,31 @@ void process_tokens(std::vector<std::string> tokens, std::vector<std::byte> &dat
                 throw std::invalid_argument("Insert position "+std::to_string(atAddress)+" is beyond end of data ("+std::to_string(data.size())+")");
             }
             data.insert(data.begin()+atAddress, newData.begin(), newData.end());
+            previousEnd = atAddress+data.size();
             std::cout << "Inserted " << data.size() << " bytes at " << atAddress << std::endl;
             break;
         case Action::WRITE: 
             if( atAddress < 0 ) {
                 throw std::invalid_argument("Write requires 'at <address>' parameter");
             }
-            if( (unsigned long)atAddress >= data.size() ) {
+            if( (unsigned long)atAddress > data.size() ) {
                 throw std::invalid_argument("Write position "+std::to_string(atAddress)+" is beyond end of data ("+std::to_string(data.size())+")");
             }
-            if( (unsigned long)atAddress+newData.size() >= data.size() ) {
+            if( (unsigned long)atAddress == data.size() ) {
+                data.insert(data.end(), newData.begin(), newData.end());
+                previousEnd = data.size();
+            }
+            else if( (unsigned long)atAddress+newData.size() >= data.size() ) {
                 data.erase(data.begin()+atAddress, data.end());
                 data.insert(data.end(), newData.begin(), newData.end());
+                previousEnd = data.size();
             }
             else {
                 data.erase(data.begin()+(unsigned long)atAddress, data.begin()+(unsigned long)atAddress+newData.size());
                 data.insert(data.begin()+(unsigned long)atAddress, newData.begin(), newData.end());
+                previousEnd = atAddress+data.size();
             }
-            std::cout << "Write" << std::endl;
+            std::cout << "Wrote " << newData.size() << " bytes at " << atAddress << std::endl;
             break;
         default:
             std::cerr << "Unsupported action " << action << std::endl;
@@ -484,12 +602,15 @@ void process_script(std::vector<std::string> script, std::string filename) {
 
     std::vector<std::byte> data;
 
+    long previousEnd = -1;
+    Action previousAction = Action::APPEND;
+
     try {
         for (const std::string& line: script) {
             std::vector<std::string> tokens = tokenize_string(line);
 
             if( tokens.size() > 0 ) {
-                process_tokens(tokens, data);
+                process_tokens(tokens, data, previousEnd, previousAction);
             }
             lineNumber++;
         }
@@ -526,10 +647,11 @@ int main(int argc, char* argv[]) {
         std::cout << "     hex <hexblock>                    - read data from hex stream" << std::endl;
         std::cout << "     from <offset>                     - read from offset in data" << std::endl;
         std::cout << "     to <offset>                       - read to offset in data" << std::endl;
-        std::cout << "     count <offset>                    - read exact number of bytes in data" << std::endl;
+        std::cout << "     bytes <offset>                    - read exact number of bytes in data" << std::endl;
         std::cout << "     exactly <value>                   - extend data to an exact length" << std::endl;
         std::cout << "     pad [once] <value> [,<value>...]  - pad to required length with sequence of values" << std::endl;
         std::cout << "     at <value>                        - insert or write data at the given offset" << std::endl;
+        std::cout << "     interleave <value1> [,] <value2>  - interleave a first data set with a second in chunks of value1 and value2 bytes" << std::endl;
         std::cout << "   Values:" << std::endl;
         std::cout << "     123                -> Decimal number" << std::endl;
         std::cout << "     0x12               -> Hex number" << std::endl;
